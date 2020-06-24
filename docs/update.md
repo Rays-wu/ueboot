@@ -1,5 +1,75 @@
+## ueboot-parent更新记录
+- 3.1.0 
+    - 更新spring boot版本到2.2.6
+    - 更新了依赖组件的版本到最新可用版本
+    - 升级时swagger组件需要调整，避免版本冲突
+    - 升级后repository当中的findById方法需要去除。
+## ueboot-view 2.0版本更新记录
+- 该版本采用最新的vue-cli构建，同时升级了iview等主要组件的版本。1.7.x版本可以无缝升级到此版本
+- 修改内容：
+    - main.js `import 'ueboot/dist/styles/ueboot.css'` 改为： `import 'ueboot/lib/ueboot.css'`
+    - main.js 增加iview样式 
+        ```
+        import ViewUI from 'view-design';
+         import 'view-design/dist/styles/iview.css';
+         Vue.use(ViewUI);
+      ```
+     - router.js当中的引用到ueboot相关的页面，也需要修改
+     原代码`import {PageLogin, PageMain, PageShiroUser, PageShiroRole, PageShiroResources} from 'ueboot'` 改为`import ueboot from 'ueboot'`
+     示例:```
+        {
+           path: '/ueboot/shiro/User',
+           name: 'User',
+           component: ueboot.PageShiroUser
+         },
+     ```
+- 2.1.3
+    - page_login.captcha增加 多个属性用于控制验证码样式和长度
+      ```javascript
+          captcha:{
+              //是否显示验证码，需要搭配后端的配置
+              show:true,
+              //验证码长度，最小4位
+              codeCount:6,
+              //验证码宽度，最小200
+              width:220,
+              //验证码高度，最新80
+              height:80
+          }
+      ```
+- 2.1.0
+    - 升级iview到iview-design组件，版本变更为4.1.3
+    - 调整Main.vue页面布局，解决样式错乱问题。直接使用iview布局
+    
+- 2.0.3 
+    - 初始版本发布，升级iview等组件
+
 
 ## 1.7版本更新记录
+- v1.7.48 
+    - axios增加confirmToLogin属性，用于异步请求发生需要跳转到登录页面时，是否弹出确认提示框，默认为true
+- v1.7.40
+    - 登录页面增加登录成功后返回的回调事件，可以自定义实现登录成功后跳转
+    - 
+    ```javascript
+          page_login: {
+              /**
+               * 登录成功后的回调方法，有这个方法后会替换默认的路由跳转事件
+               * @param responseBody 登录成功后返回的结果
+               * @param _this 当前Login.vue页面的this对象，如果需要跳转路由等，直接用
+               * _this.$router.push({path:'/'});
+               */
+              successCallBack:(responseBody,_this)=>{},
+              //登录成功后的跳转路径。与successCallBack互斥，存在callback方法，则当前配置无效
+              successRouter:{path:'/'}
+            }
+
+    ```
+- v1.7.39
+    - 表单编辑时可以对输入框做禁用状态。
+- v1.7.38
+    - 解决IE下返回登录页面未刷新页面的问题
+    - 解决导出全部数据时，如果是当前在第二页数据会导致导出结果为空的问题
 - v1.7.29
     - formGrid增加resetSuperFilterColumns方法，可以重设搜索表单属性，避免直接改superFilter.columns导致UI重新渲染，失去用户已经填写的值
 - v1.7.26

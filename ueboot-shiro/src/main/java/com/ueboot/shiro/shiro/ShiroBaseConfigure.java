@@ -4,6 +4,7 @@ package com.ueboot.shiro.shiro;
 import com.ueboot.core.condition.RedisDisabledCondition;
 import com.ueboot.core.condition.RedisEnableCondition;
 import com.ueboot.shiro.shiro.auditor.JpaAuditingAwareImpl;
+import com.ueboot.shiro.shiro.cache.RedisCache;
 import com.ueboot.shiro.shiro.cache.ShiroRedisCacheManger;
 import com.ueboot.shiro.shiro.credential.RetryLimitHashedCredentialsMatcher;
 import lombok.extern.slf4j.Slf4j;
@@ -40,6 +41,7 @@ import java.util.Map;
 @Configuration
 @Slf4j
 public class ShiroBaseConfigure {
+
     /**
      * 当shiroService对应的bean不存在存在时，会使用默认数据
      *
@@ -47,15 +49,15 @@ public class ShiroBaseConfigure {
      * @return ShiroFilterFactoryBean
      */
     @Bean(name = "shiroFilter")
-    public ShiroFilterFactoryBean shiroFilter(@Autowired SecurityManager securityManager,ShiroService shiroService) {
+    public ShiroFilterFactoryBean shiroFilter(@Autowired SecurityManager securityManager, ShiroService shiroService) {
         ShiroFilterFactoryBean bean = new ShiroFilterFactoryBean();
         bean.setSecurityManager(securityManager);
         bean.setLoginUrl("#/login");
         Map<String, String> map = new HashMap<>();
         //默认所有请求做认证，对部分约定目录的请求不做拦截
-        map.put("/ueboot/shiro/public/","anon");
-        map.put("/static/","anon");
-        map.put("/public/","anon");
+        map.put("/ueboot/shiro/public/", "anon");
+        map.put("/static/", "anon");
+        map.put("/public/", "anon");
         Map<String, String> customMap = shiroService.addFilterChainDefinition();
         map.putAll(customMap);
         bean.setFilterChainDefinitionMap(map);
@@ -74,7 +76,7 @@ public class ShiroBaseConfigure {
             protected void redirectToLogin(ServletRequest request, ServletResponse response) throws IOException {
                 response.setCharacterEncoding("UTF-8");
                 response.setContentType("application/json");
-                response.getWriter().write("{\"code\":401,\"errorMsg\":\"尚未登录，请登录!\"}");
+                response.getWriter().write("{\"code\":401,\"errorMsg\":\"尚未登录，请登录\"}");
             }
         });
         bean.setFilters(filterMap);
@@ -82,7 +84,7 @@ public class ShiroBaseConfigure {
     }
 
     @Bean
-    public Realm realm(CredentialsMatcher credentialsMatcher,UserRealm userRealm) {
+    public Realm realm(CredentialsMatcher credentialsMatcher, UserRealm userRealm) {
         //自定义密码校验器
         userRealm.setCredentialsMatcher(credentialsMatcher);
         return userRealm;
@@ -90,28 +92,31 @@ public class ShiroBaseConfigure {
 
 
     @Bean
-    public CacheManager getCacheManager(RedisTemplate<Object,Object> redisTemplate){
-       return new ShiroRedisCacheManger("ueboot-shiro",redisTemplate);
+    @Conditional(RedisEnableCondition.class)
+    public CacheManager getCacheManager(RedisTemplate<Object, Object> redisTemplate) {
+        return new ShiroRedisCacheManger(RedisCache.keyNamespace, redisTemplate);
     }
 
     /**
      * 当用户的环境配置了redisTemplate时则使用Redis做缓存
-     * @param realm realm
+     *
+     * @param realm         realm
      * @param redisTemplate spring RedisTemplate
      * @return DefaultWebSecurityManager
      */
     @Bean
     @Conditional(RedisEnableCondition.class)
-    public DefaultWebSecurityManager defaultWebSecurityManager(Realm realm, RedisTemplate<Object,Object> redisTemplate) {
+    public DefaultWebSecurityManager defaultWebSecurityManager(Realm realm, RedisTemplate<Object, Object> redisTemplate) {
         DefaultWebSecurityManager securityManager = new DefaultWebSecurityManager();
         securityManager.setRealm(realm);
         //使用自定义的Redis缓存实现，依赖redisTemplate，keyNamespace可以默认为空
-
         securityManager.setCacheManager(this.getCacheManager(redisTemplate));
         return securityManager;
     }
+
     /**
      * 当用户的环境没有配置redisTemplate时则使用ehcache做缓存
+     *
      * @param realm realm
      * @return DefaultWebSecurityManager
      */
@@ -125,7 +130,6 @@ public class ShiroBaseConfigure {
         securityManager.setCacheManager(cacheManager);
         return securityManager;
     }
-
 
 
     /**
@@ -143,17 +147,37 @@ public class ShiroBaseConfigure {
     }
 
     /***
+     * 密码凭证匹配器,采用redis记录重试次数，超过指定次数则不允许登录
+     * @return
+     */
+    @Bean
+    @Conditional(RedisEnableCondition.class)
+    public CredentialsMatcher retryLimitHashedCredentialsMatcher(RedisTemplate<Object, Object> redisTemplate) {
+        return credentialsMatcher(redisTemplate);
+
+    }
+
+    /***
      * 密码凭证匹配器
      * @return
      */
     @Bean
-    @ConditionalOnMissingBean
-    public CredentialsMatcher hashedCredentialsMatcher(RedisTemplate<Object,Object> redisTemplate) {
-        HashedCredentialsMatcher  matcher=new RetryLimitHashedCredentialsMatcher(redisTemplate);
-        matcher.setHashAlgorithmName ("SHA-512");
+    @Conditional(RedisDisabledCondition.class)
+    public CredentialsMatcher hashedCredentialsMatcher() {
+        return credentialsMatcher(null);
+    }
+
+    private CredentialsMatcher credentialsMatcher(RedisTemplate<Object, Object> redisTemplate) {
+        HashedCredentialsMatcher matcher = null;
+        if (redisTemplate != null) {
+            matcher = new RetryLimitHashedCredentialsMatcher(redisTemplate);
+        } else {
+            matcher = new HashedCredentialsMatcher();
+        }
+        matcher.setHashAlgorithmName("SHA-512");
         //散列的次数，比如散列两次
-        matcher.setHashIterations (2);
-        matcher.setStoredCredentialsHexEncoded (Boolean.TRUE);
+        matcher.setHashIterations(2);
+        matcher.setStoredCredentialsHexEncoded(Boolean.TRUE);
         return matcher;
     }
 
@@ -161,7 +185,8 @@ public class ShiroBaseConfigure {
      * 增加审计记录，根据登录用户补充创建人、修改人
      */
     @Bean
-    public AuditorAware auditorAware(){
+    @ConditionalOnMissingBean
+    public AuditorAware auditorAware() {
         return new JpaAuditingAwareImpl();
     }
 

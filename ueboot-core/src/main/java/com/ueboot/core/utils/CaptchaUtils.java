@@ -1,6 +1,12 @@
 
 package com.ueboot.core.utils;
 
+import cn.hutool.captcha.CaptchaUtil;
+import cn.hutool.captcha.LineCaptcha;
+import cn.hutool.captcha.generator.RandomGenerator;
+import com.ueboot.core.exception.BusinessException;
+import lombok.extern.slf4j.Slf4j;
+
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.Graphics;
@@ -20,6 +26,7 @@ import javax.imageio.ImageIO;
  * 验证码生成工具
  * @author yangkui
  */
+@Slf4j
 public class CaptchaUtils {
     public static final String VERIFY_CODES = "23456789ABCDEFGHKMNPQRSTUVWXYZ";
     private static Random random = new Random();
@@ -29,6 +36,25 @@ public class CaptchaUtils {
 
     public static String generate(int captcha) {
         return generate(captcha, "23456789ABCDEFGHKMNPQRSTUVWXYZ");
+    }
+
+    /**
+     * 使用hutool工具类生成验证码
+     * @param w 图片宽度
+     * @param h 图片高度
+     * @param codeCount 字符长度
+     * @return 生产好的验证码，可以从中获取到code和图片
+     */
+    public static LineCaptcha getLineCaptcha(int w, int h,int codeCount){
+        if(codeCount<4){
+            codeCount =4;
+        }
+        RandomGenerator randomGenerator = new RandomGenerator("123456789abcdefghijklmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ", codeCount);
+        LineCaptcha lineCaptcha = CaptchaUtil.createLineCaptcha(w, h);
+        lineCaptcha.setGenerator(randomGenerator);
+        lineCaptcha.createCode();
+        return lineCaptcha;
+
     }
 
     public static String generate(int length, String sources) {

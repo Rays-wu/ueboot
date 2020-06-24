@@ -4,7 +4,10 @@ import org.apache.shiro.SecurityUtils;
 import org.apache.shiro.util.ThreadContext;
 import org.springframework.data.domain.AuditorAware;
 
+import java.util.Optional;
+
 /**
+ * 用于支撑JPA当中审核人注解如何获取
  * @author yangkui
  */
 public class JpaAuditingAwareImpl implements AuditorAware<String> {
@@ -14,12 +17,11 @@ public class JpaAuditingAwareImpl implements AuditorAware<String> {
      * @return the current auditor
      */
     @Override
-    public String getCurrentAuditor() {
+    public Optional<String> getCurrentAuditor() {
 
-        //使用当前登录用户名称作为创建人和最后修改人字段的值
         if (ThreadContext.getSubject() != null && SecurityUtils.getSubject() != null) {
-            return (String) SecurityUtils.getSubject().getPrincipal();
+            return Optional.ofNullable((String) SecurityUtils.getSubject().getPrincipal());
         }
-        return null;
+        return Optional.empty();
     }
 }

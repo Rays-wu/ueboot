@@ -1,6 +1,8 @@
 package com.ueboot.shiro.controller.api;
 
 
+import cn.hutool.captcha.LineCaptcha;
+import cn.hutool.core.util.StrUtil;
 import com.alibaba.fastjson.JSON;
 import com.ueboot.core.exception.BusinessException;
 import com.ueboot.core.http.response.Response;
@@ -11,21 +13,28 @@ import com.ueboot.shiro.service.resources.ResourcesService;
 import com.ueboot.shiro.service.user.UserService;
 import com.ueboot.shiro.shiro.ShiroEventListener;
 import com.ueboot.shiro.shiro.ShiroService;
+import com.ueboot.shiro.shiro.UserRealm;
+import com.ueboot.shiro.shiro.cache.RedisCache;
 import com.ueboot.shiro.shiro.handler.ShiroExceptionHandler;
 import com.ueboot.shiro.shiro.processor.ShiroProcessor;
 import com.ueboot.shiro.util.PasswordUtil;
+import io.swagger.annotations.ApiImplicitParam;
+import io.swagger.annotations.ApiOperation;
 import jodd.datetime.JDateTime;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.shiro.SecurityUtils;
-import org.apache.shiro.authc.AuthenticationException;
-import org.apache.shiro.authc.ExcessiveAttemptsException;
+import org.apache.shiro.authz.AuthorizationInfo;
 import org.apache.shiro.authz.annotation.RequiresAuthentication;
+import org.apache.shiro.cache.Cache;
 import org.apache.shiro.subject.Subject;
 import org.springframework.beans.BeanUtils;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.annotation.*;
 
+import javax.annotation.Resource;
+import javax.imageio.ImageIO;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
 import javax.servlet.http.HttpSession;
@@ -33,6 +42,7 @@ import java.io.IOException;
 import java.util.*;
 
 /**
+ *
  * ueboot-shiro 对外提供Api接口（用户登录、退出、验证码、用户菜单、）
  *
  * @author yangkui
@@ -54,17 +64,23 @@ public class ApiController {
 
     private final ShiroEventListener shiroEventListener;
 
+    private final UserRealm userRealm;
+
+
     @Autowired
     public ApiController(ShiroProcessor shiroProcessor, ResourcesService resourcesService,
-                         UserService userService, ShiroService shiroService, ShiroEventListener shiroEventListener) {
+                         UserService userService, ShiroService shiroService, ShiroEventListener shiroEventListener,UserRealm userRealm) {
         this.shiroProcessor = shiroProcessor;
         this.resourcesService = resourcesService;
         this.userService = userService;
         this.shiroService = shiroService;
         this.shiroEventListener = shiroEventListener;
+        this.userRealm = userRealm;
     }
 
     @PostMapping(value = "/public/login")
+    @ApiOperation(value = "用户登录",notes = "校验码的获取参加校验码获取接口，返回接口后台可以自定义")
+    @ApiImplicitParam(name = "params", value = "登录接口参数", required = true, dataType = "LoginVo")
     public Response<Map<String, Object>> login(@RequestBody LoginVo params, HttpServletRequest request) {
         HttpSession session = request.getSession(true);
         String sessionCaptcha = (String) session.getAttribute(CAPTCHA_KEY);
@@ -89,12 +105,11 @@ public class ApiController {
     }
 
     @PostMapping(value = "/private/logout")
-    public Response<Void> logout(@RequestBody LoginVo params) {
+    @ApiOperation(value = "用户退出")
+    public Response<Void> logout() {
         // 登出日志记录
         String currentUserName = (String) SecurityUtils.getSubject().getPrincipal();
         this.shiroEventListener.loginOutEvent(currentUserName);
-        // TODO 用户名获取为空
-        log.info("/logout  username: {} ", params.getUsername(), params.getPassword(), params.getCaptcha());
         this.shiroProcessor.logout();
         return new Response<>();
     }
@@ -102,6 +117,7 @@ public class ApiController {
 
     @RequiresAuthentication
     @RequestMapping(value = "/private/updatePassword")
+    @ApiOperation(value = "更新密码")
     public Response<Void> updatePassword(@RequestBody UpdatePasswordReq req) {
         String userName = (String) SecurityUtils.getSubject().getPrincipal();
         //加密旧密码
@@ -132,6 +148,7 @@ public class ApiController {
      */
     @RequiresAuthentication
     @RequestMapping(value = "/private/menus", method = RequestMethod.GET)
+    @ApiOperation(value = "获取登录用户的菜单资源")
     public Response<List<MenuVo>> menus() {
         Subject currentUser = SecurityUtils.getSubject();
         String username = (String) currentUser.getPrincipal();
@@ -187,25 +204,36 @@ public class ApiController {
      * @throws IOException IOException
      */
     @RequestMapping(value = "/public/captcha", method = RequestMethod.GET)
+    @ApiOperation(value = "获取验证码")
     public void captcha(HttpServletRequest request, HttpServletResponse response) throws IOException {
         response.setHeader("Pragma", "No-cache");
         response.setHeader("Cache-Control", "no-cache");
         response.setDateHeader("Expires", 0L);
         response.setContentType("image/jpeg");
-        String captcha = CaptchaUtils.generate(4);
-        HttpSession session = request.getSession();
-        session.setAttribute(CAPTCHA_KEY, captcha.toLowerCase());
+        String codeCountStr = request.getParameter("codeCount");
+        String widthStr = request.getParameter("width");
+        String heightStr = request.getParameter("height");
+        int codeCount = 4;
         int w = 200;
         int h = 80;
-        CaptchaUtils.outputImage(w, h, response.getOutputStream(), captcha);
-    }
+        if(StrUtil.isNotBlank(codeCountStr)){
+            codeCount = Integer.parseInt(codeCountStr);
+        }
+        if(StrUtil.isNotBlank(widthStr)){
+            w = Integer.parseInt(widthStr);
+        }
+        if(StrUtil.isNotBlank(heightStr)){
+            h = Integer.parseInt(heightStr);
+        }
 
-    private void lockAccount(String userName) {
-        if (!StringUtils.isEmpty(userName)) {
-            User user = this.userService.findByUserName(userName);
-            user.setLocked(true);
-            this.userService.save(user);
+        LineCaptcha captcha = CaptchaUtils.getLineCaptcha(w,h,codeCount);
+        try {
+            HttpSession session = request.getSession();
+            session.setAttribute(CAPTCHA_KEY, captcha.getCode().toLowerCase());
+            ImageIO.write(captcha.getImage(), "jpg", response.getOutputStream());
+        } catch (IOException e) {
+            log.error(e.getMessage(),e);
+            throw new BusinessException("验证码生成异常");
         }
     }
-
 }
